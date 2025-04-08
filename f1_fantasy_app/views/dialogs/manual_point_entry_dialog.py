@@ -1,5 +1,5 @@
 """
-views/dialogs/manual_point_entry_dialog.py - Dialog for manual entry of driver points
+views/dialogs/manual_point_entry_dialog.py - Dialog for manually entering race points
 """
 
 import tkinter as tk
@@ -8,42 +8,34 @@ from tkinter import ttk, messagebox
 class ManualPointEntryDialog:
     """Dialog for manual entry of driver points for a race"""
     
-    def __init__(self, parent, race_id, race_name, drivers_data, image_loader, on_save=None):
+    def __init__(self, parent, race_id, drivers_data, callback=None):
         """
         Initialize the manual point entry dialog.
         
         Args:
-            parent: The parent widget
+            parent: Parent window
             race_id (str): Race ID
-            race_name (str): Race name
-            drivers_data (pd.DataFrame): DataFrame containing driver data
-            image_loader: The image loader instance for driver images
-            on_save (callable, optional): Function to call when points are saved
+            drivers_data (list): List of driver data dictionaries
+            callback (function, optional): Function to call with results
         """
         self.parent = parent
         self.race_id = race_id
-        self.race_name = race_name
         self.drivers_data = drivers_data
-        self.image_loader = image_loader
-        self.on_save = on_save
+        self.callback = callback
+        self.point_vars = {}  # Will store StringVars for point inputs
         
         # Create dialog
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title(f"Manual Point Entry for {race_id} - {race_name}")
+        self.dialog.title(f"Manual Point Entry for {race_id}")
         self.dialog.geometry("500x600")
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
-        # Create dialog elements
-        self._create_widgets()
-        
-        # Store references to images to prevent garbage collection
-        self.images = {}
+        self.create_widgets()
     
-    def _create_widgets(self):
-        """Create all dialog widgets"""
-        # Title label
-        ttk.Label(self.dialog, text=f"Enter fantasy points for each driver for {self.race_id} - {self.race_name}").pack(pady=10)
+    def create_widgets(self):
+        """Create dialog widgets"""
+        ttk.Label(self.dialog, text=f"Enter fantasy points for each driver for {self.race_id}").pack(pady=10)
         
         # Create scrollable frame
         canvas = tk.Canvas(self.dialog)
@@ -64,49 +56,38 @@ class ManualPointEntryDialog:
         scrollbar.pack(side="right", fill="y")
         
         # Create entry fields for each driver
-        self.point_vars = {}
-        
         ttk.Label(scrollable_frame, text="Driver").grid(row=0, column=0, padx=5, pady=5)
         ttk.Label(scrollable_frame, text="Points").grid(row=0, column=1, padx=5, pady=5)
         ttk.Label(scrollable_frame, text="").grid(row=0, column=2, padx=5, pady=5)  # For images
         
-        for i, (_, driver) in enumerate(self.drivers_data.iterrows(), 1):
+        for i, driver in enumerate(self.drivers_data, 1):
             driver_id = driver['DriverID']
             driver_name = driver['Name']
             
-            # Driver image
-            driver_image = self.image_loader.get_driver_image(driver_id, (30, 30))
-            if driver_image:
-                image_label = ttk.Label(scrollable_frame, image=driver_image)
+            # Driver image (placeholder in this implementation)
+            if 'image' in driver:
+                image_label = ttk.Label(scrollable_frame, image=driver['image'])
                 image_label.grid(row=i, column=2, padx=5, pady=2)
                 # Store reference to prevent garbage collection
-                self.images[f"driver_{driver_id}"] = driver_image
-            else:
-                # Create placeholder if image not found
-                placeholder = self.image_loader.create_placeholder_image(driver_id, (30, 30))
-                image_label = ttk.Label(scrollable_frame, image=placeholder)
-                image_label.grid(row=i, column=2, padx=5, pady=2)
-                # Store reference to prevent garbage collection
-                self.images[f"driver_{driver_id}"] = placeholder
+                setattr(self.dialog, f"driver_image_{driver_id}", driver['image'])
             
             ttk.Label(scrollable_frame, text=f"{driver_name} ({driver_id})").grid(row=i, column=0, padx=5, pady=2, sticky=tk.W)
             
-            point_var = tk.StringVar(value="0.0")
-            self.point_vars[driver_id] = point_var
-            
-            ttk.Entry(scrollable_frame, textvariable=point_var, width=10).grid(row=i, column=1, padx=5, pady=2)
+            # Points entry field
+            self.point_vars[driver_id] = tk.StringVar(value="0.0")
+            ttk.Entry(scrollable_frame, textvariable=self.point_vars[driver_id], width=10).grid(row=i, column=1, padx=5, pady=2)
         
         # Buttons
         button_frame = ttk.Frame(self.dialog)
-        button_frame.pack(side=tk.BOTTOM, pady=10)
+        button_frame.pack(pady=10)
         
-        ttk.Button(button_frame, text="Save Points", command=self._on_save).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Save Points", command=self.save_points).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=self.dialog.destroy).pack(side=tk.LEFT, padx=5)
     
-    def _on_save(self):
-        """Handle save points button click"""
+    def save_points(self):
+        """Process and save the entered points"""
         try:
-            # Create result data
+            # Create results data
             results_data = []
             
             for driver_id, point_var in self.point_vars.items():
@@ -121,11 +102,16 @@ class ManualPointEntryDialog:
                     messagebox.showerror("Error", f"Invalid point value for {driver_id}")
                     return
             
-            # Call save function if provided
-            if self.on_save:
-                self.on_save(self.race_id, results_data)
-            
-            # Close dialog
-            self.dialog.destroy()
+            # Call the callback with results
+            if self.callback:
+                success = self.callback(self.race_id, results_data)
+                if success:
+                    messagebox.showinfo("Success", f"Race results for {self.race_id} saved successfully!")
+                    self.dialog.destroy()
+                else:
+                    messagebox.showerror("Error", "Failed to save race results")
+            else:
+                self.dialog.destroy()
+                
         except Exception as e:
-            messagebox.showerror("Error", f"Error saving points: {e}")
+            messagebox.showerror("Error", f"Error saving points: {str(e)}")

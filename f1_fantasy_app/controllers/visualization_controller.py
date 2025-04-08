@@ -462,3 +462,335 @@ class DriverPerformanceController:
         
         # Update the view
         self.view.update(viz_data)
+
+
+class HeadToHeadController:
+    """Controller for Head-to-Head visualization"""
+    
+    def __init__(self, view, data_manager):
+        """
+        Initialize the controller.
+        
+        Args:
+            view: The visualization view
+            data_manager: The data manager
+        """
+        self.view = view
+        self.data_manager = data_manager
+        
+        # Initialize view
+        self.initialize()
+    
+    def initialize(self):
+        """Initialize the visualization"""
+        # Load data
+        data = self.data_manager.load_data()
+        if not data:
+            self.view.show_placeholder("No data available")
+            return
+            
+        # Get player options for dropdown
+        player_picks = data.get('player_picks', None)
+        if player_picks is None:
+            self.view.show_placeholder("No player data available")
+            return
+            
+        player_options = []
+        for player_id in player_picks['PlayerID'].unique():
+            player_rows = player_picks[player_picks['PlayerID'] == player_id]
+            if not player_rows.empty:
+                player_name = player_rows['PlayerName'].iloc[0]
+                player_options.append(f"{player_name} ({player_id})")
+        
+        # Update view with player options
+        self.view.set_player_options(player_options)
+        
+        # Show placeholder
+        self.view.show_placeholder("Select two players and click 'Compare'")
+    
+    def update_visualization(self, player1_id, player2_id):
+        """Update the visualization with new data
+        
+        Args:
+            player1_id (str): ID of first player
+            player2_id (str): ID of second player
+        """
+        # Load data
+        data = self.data_manager.load_data()
+        if not data:
+            self.view.show_placeholder("No data available")
+            return
+            
+        # Get completed races
+        races = data.get('races', None)
+        if races is None:
+            self.view.show_placeholder("No race data available")
+            return
+            
+        races = races.sort_values(by='Date')
+        completed_races = races[races['Status'] == 'Completed']['RaceID'].tolist()
+        
+        if not completed_races:
+            self.view.show_placeholder("No completed races found")
+            return
+            
+        # Get race dates
+        race_dates = {
+            race_id: races[races['RaceID'] == race_id]['Date'].iloc[0].strftime('%Y-%m-%d')
+            for race_id in completed_races
+        }
+        
+        # Get player results
+        player_results = data.get('player_results', None)
+        if player_results is None:
+            self.view.show_placeholder("No player results available")
+            return
+            
+        # Get player names
+        player_picks = data.get('player_picks', None)
+        player1_name = player1_id
+        player2_name = player2_id
+        
+        if player_picks is not None:
+            player1_rows = player_picks[player_picks['PlayerID'] == player1_id]
+            if not player1_rows.empty:
+                player1_name = player1_rows['PlayerName'].iloc[0]
+                
+            player2_rows = player_picks[player_picks['PlayerID'] == player2_id]
+            if not player2_rows.empty:
+                player2_name = player2_rows['PlayerName'].iloc[0]
+        
+        # Prepare player data
+        player1_data = {'name': player1_name, 'race_points': {}, 'cumulative_points': []}
+        player2_data = {'name': player2_name, 'race_points': {}, 'cumulative_points': []}
+        
+        # Calculate head-to-head stats
+        head_to_head_stats = {
+            'total_races': len(completed_races),
+            'player1_wins': 0,
+            'player2_wins': 0,
+            'draws': 0,
+            'player1_total': 0,
+            'player2_total': 0,
+            'player1_best': 0,
+            'player2_best': 0,
+            'player1_best_race': 'N/A',
+            'player2_best_race': 'N/A'
+        }
+        
+        # Calculate race points and stats for each player
+        p1_cumul = 0
+        p2_cumul = 0
+        
+        for race_id in completed_races:
+            # Player 1
+            p1_race = player_results[(player_results['PlayerID'] == player1_id) & 
+                                     (player_results['RaceID'] == race_id)]
+            
+            if not p1_race.empty:
+                p1_points = p1_race.iloc[0]['Points']
+                player1_data['race_points'][race_id] = p1_points
+                p1_cumul += p1_points
+                head_to_head_stats['player1_total'] += p1_points
+                
+                # Check if best race
+                if p1_points > head_to_head_stats['player1_best']:
+                    head_to_head_stats['player1_best'] = p1_points
+                    head_to_head_stats['player1_best_race'] = race_id
+            else:
+                player1_data['race_points'][race_id] = 0
+                
+            player1_data['cumulative_points'].append(p1_cumul)
+            
+            # Player 2
+            p2_race = player_results[(player_results['PlayerID'] == player2_id) & 
+                                     (player_results['RaceID'] == race_id)]
+            
+            if not p2_race.empty:
+                p2_points = p2_race.iloc[0]['Points']
+                player2_data['race_points'][race_id] = p2_points
+                p2_cumul += p2_points
+                head_to_head_stats['player2_total'] += p2_points
+                
+                # Check if best race
+                if p2_points > head_to_head_stats['player2_best']:
+                    head_to_head_stats['player2_best'] = p2_points
+                    head_to_head_stats['player2_best_race'] = race_id
+            else:
+                player2_data['race_points'][race_id] = 0
+                
+            player2_data['cumulative_points'].append(p2_cumul)
+            
+            # Determine race winner
+            p1_race_points = player1_data['race_points'].get(race_id, 0)
+            p2_race_points = player2_data['race_points'].get(race_id, 0)
+            
+            if p1_race_points > p2_race_points:
+                head_to_head_stats['player1_wins'] += 1
+            elif p2_race_points > p1_race_points:
+                head_to_head_stats['player2_wins'] += 1
+            else:
+                head_to_head_stats['draws'] += 1
+        
+        # Calculate averages
+        if completed_races:
+            head_to_head_stats['player1_avg'] = head_to_head_stats['player1_total'] / len(completed_races)
+            head_to_head_stats['player2_avg'] = head_to_head_stats['player2_total'] / len(completed_races)
+        
+        # Prepare data for view
+        viz_data = {
+            'completed_races': completed_races,
+            'race_dates': race_dates,
+            'player1_data': player1_data,
+            'player2_data': player2_data,
+            'head_to_head_stats': head_to_head_stats
+        }
+        
+        # Update view
+        self.view.update(viz_data)
+
+class CreditEfficiencyController:
+    """Controller for Credit Efficiency visualization"""
+    
+    def __init__(self, view, data_manager):
+        """
+        Initialize the controller.
+        
+        Args:
+            view: The visualization view
+            data_manager: The data manager
+        """
+        self.view = view
+        self.data_manager = data_manager
+        
+        # Initialize view
+        self.initialize()
+    
+    def initialize(self):
+        """Initialize the visualization"""
+        # Load data
+        data = self.data_manager.load_data()
+        if not data:
+            self.view.show_placeholder("No data available")
+            return
+            
+        # Get race options for dropdown
+        races = data.get('races', None)
+        if races is None:
+            self.view.show_placeholder("No race data available")
+            return
+            
+        # Get completed races
+        races = races.sort_values(by='Date')
+        completed_races = races[races['Status'] == 'Completed']
+        
+        race_options = []
+        for _, race in completed_races.iterrows():
+            race_id = race['RaceID']
+            race_name = race['Name']
+            race_options.append(f"{race_id} - {race_name}")
+        
+        # Update view with race options
+        self.view.set_race_options(race_options)
+        
+        # Show placeholder
+        self.view.show_placeholder("Select a race and click 'Update Chart'")
+    
+    def update_visualization(self, race_id):
+        """Update the visualization with new data
+        
+        Args:
+            race_id (str): Selected race ID or "All Races"
+        """
+        # Load data
+        data = self.data_manager.load_data()
+        if not data:
+            self.view.show_placeholder("No data available")
+            return
+            
+        # Get drivers data
+        drivers = data.get('drivers', None)
+        if drivers is None:
+            self.view.show_placeholder("No driver data available")
+            return
+            
+        # Get race results
+        race_results = data.get('race_results', None)
+        if race_results is None:
+            self.view.show_placeholder("No race results available")
+            return
+            
+        # Get completed races
+        races = data.get('races', None)
+        if races is None:
+            self.view.show_placeholder("No race data available")
+            return
+            
+        completed_races = races[races['Status'] == 'Completed']['RaceID'].tolist()
+        
+        # Determine if we're using theoretical data
+        is_theoretical = (not completed_races or (race_id != "All Races" and 
+                        race_id not in race_results['RaceID'].unique()))
+        
+        note = ""
+        if is_theoretical:
+            note = "Using theoretical data based on driver credits (no race results yet)."
+        elif race_id != "All Races":
+            note = f"Showing actual efficiency for {race_id}."
+        else:
+            note = f"Showing average efficiency across {len(completed_races)} races."
+            
+        # Calculate driver efficiency data
+        driver_data = []
+        
+        for _, driver in drivers.iterrows():
+            driver_id = driver['DriverID']
+            driver_name = driver['Name']
+            driver_credits = driver['Credits']
+            
+            if driver_credits <= 0:  # Skip reserve drivers
+                continue
+                
+            # Calculate average points
+            if race_id == "All Races":
+                # Average across all completed races
+                driver_results = race_results[race_results['DriverID'] == driver_id]
+                if not driver_results.empty:
+                    avg_points = driver_results['Points'].mean()
+                else:
+                    avg_points = 0.0
+            else:
+                # Only for specific race
+                driver_race = race_results[(race_results['DriverID'] == driver_id) & 
+                                         (race_results['RaceID'] == race_id)]
+                if not driver_race.empty:
+                    avg_points = driver_race.iloc[0]['Points']
+                else:
+                    # No results, use theoretical
+                    avg_points = driver_credits * 5.0  # Simple model: credits × 5
+                    is_theoretical = True
+            
+            # Calculate efficiency
+            efficiency = 0.0
+            if driver_credits > 0:
+                efficiency = avg_points / driver_credits
+            
+            driver_data.append({
+                'driver_id': driver_id,
+                'name': f"{driver_name} ({driver_id})",
+                'credits': driver_credits,
+                'avg_points': avg_points,
+                'efficiency': efficiency
+            })
+        
+        # Prepare data for view
+        viz_data = {
+            'race_id': race_id,
+            'is_theoretical': is_theoretical,
+            'note': note,
+            'driver_data': driver_data,
+            'total_races': len(completed_races) if race_id == "All Races" else 1
+        }
+        
+        # Update view
+        self.view.update(viz_data)
