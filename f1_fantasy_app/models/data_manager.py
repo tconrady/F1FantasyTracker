@@ -550,6 +550,18 @@ class F1DataManager:
             # Load existing driver assignments
             df_assignments = pd.read_excel(self.excel_file, sheet_name=self.sheet_names['DRIVER_ASSIGNMENTS'])
             
+            # Check if this substitution already exists
+            existing = df_assignments[
+                (df_assignments['RaceID'] == race_id) & 
+                (df_assignments['DriverID'] == substitute_driver_id) & 
+                (df_assignments['TeamID'] == team_id) &
+                (df_assignments['SubstitutedForDriverID'] == replaced_driver_id)
+            ]
+            
+            if not existing.empty:
+                logger.info(f"This substitution already exists for race {race_id}.")
+                return True  # Consider this a success rather than failure
+            
             # Add the substitution
             new_assignment = {
                 'RaceID': race_id,
@@ -564,8 +576,21 @@ class F1DataManager:
                 df_assignments.to_excel(writer, sheet_name=self.sheet_names['DRIVER_ASSIGNMENTS'], index=False)
             
             logger.info(f"Recorded substitution for race {race_id}: {substitute_driver_id} replacing {replaced_driver_id} at {team_id}.")
-            self.is_cache_valid = False  # Invalidate cache
+            
+            # Invalidate cache to ensure fresh data is loaded next time
+            self.is_cache_valid = False
+            
+            # If race is already completed, recalculate points
+            races = self.load_data().get('races', pd.DataFrame())
+            if not races.empty and race_id in races[races['Status'] == 'Completed']['RaceID'].values:
+                self.calculate_player_points_for_race(race_id)
+                logger.info(f"Recalculated player points for race {race_id} after substitution.")
+            
             return True
+            
+        except PermissionError:
+            logger.error(f"Permission denied when accessing {self.excel_file}. Please close the file if it's open in Excel.")
+            return False
         except Exception as e:
             logger.error(f"Error recording driver substitution: {e}")
             return False
@@ -843,3 +868,318 @@ class F1DataManager:
         except Exception as e:
             logger.error(f"Error creating backup: {e}")
             return None
+        
+    def _process_race_results(self, raw_data):
+        """
+        Convert cumulative race results to per-race points for drivers.
+        This is critical for accurate race-by-race analysis.
+        
+        Args:
+            raw_data (Dict[str, pd.DataFrame]): Raw data with cumulative points
+            
+        Returns:
+            pd.DataFrame: Processed race results with per-race points
+        """
+        # Create a copy to avoid modifying the original
+        race_results = raw_data['race_results'].copy()
+        
+        # Get completed races sorted by date
+        completed_races = raw_data['races'][raw_data['races']['Status'] == 'Completed']
+        completed_races = completed_races.sort_values(by='Date')
+        completed_race_ids = completed_races['RaceID'].tolist()
+        
+        if not completed_race_ids:
+            return race_results
+        
+        # Store original data for reference
+        original_race_results = race_results.copy()
+        
+        # Process each driver
+        per_race_driver_results = []
+        
+        for driver_id in raw_data['drivers']['DriverID'].unique():
+            # Extract driver results for completed races
+            driver_results = original_race_results[original_race_results['DriverID'] == driver_id]
+            if driver_results.empty:
+                continue
+            
+            # Map race ID to cumulative points
+            cumulative_points_map = {}
+            for _, row in driver_results.iterrows():
+                cumulative_points_map[row['RaceID']] = row['Points']
+            
+            # Calculate per-race points by comparing with previous race
+            prev_points = 0
+            for race_id in completed_race_ids:
+                if race_id in cumulative_points_map:
+                    current_points = cumulative_points_map[race_id]
+                    race_points = current_points - prev_points
+                    prev_points = current_points
+                else:
+                    race_points = 0
+                    
+                per_race_driver_results.append({
+                    'RaceID': race_id,
+                    'DriverID': driver_id,
+                    'Points': race_points,
+                    'CumulativePoints': prev_points
+                })
+        
+        # Return the processed results
+        if per_race_driver_results:
+            return pd.DataFrame(per_race_driver_results)
+        else:
+            return race_results
+
+    def _process_player_results(self, raw_data, race_results_df):
+        """
+        Convert cumulative player results to per-race points.
+        This matches the driver points processing and ensures consistency.
+        
+        Args:
+            raw_data (Dict[str, pd.DataFrame]): Raw data with cumulative points
+            race_results_df (pd.DataFrame): Processed race results
+            
+        Returns:
+            pd.DataFrame: Processed player results with per-race points
+        """
+        # Create a copy to avoid modifying the original
+        player_results = raw_data['player_results'].copy()
+        
+        # Get completed races sorted by date
+        completed_races = raw_data['races'][raw_data['races']['Status'] == 'Completed']
+        completed_races = completed_races.sort_values(by='Date')
+        completed_race_ids = completed_races['RaceID'].tolist()
+        
+        if not completed_race_ids:
+            return player_results
+        
+        # Store original data for reference
+        original_player_results = player_results.copy()
+        
+        # Process each player
+        per_race_player_results = []
+        
+        for player_id in original_player_results['PlayerID'].unique():
+            # Get player results
+            player_history = original_player_results[original_player_results['PlayerID'] == player_id]
+            if player_history.empty:
+                continue
+            
+            # Map race ID to data
+            player_data_map = {}
+            for _, row in player_history.iterrows():
+                player_data_map[row['RaceID']] = {
+                    'Points': row['Points'],
+                    'CalculationDetails': row['CalculationDetails'] if 'CalculationDetails' in row else ""
+                }
+            
+            # Calculate per-race points
+            prev_points = 0
+            for race_id in completed_race_ids:
+                if race_id in player_data_map:
+                    current_points = player_data_map[race_id]['Points']
+                    calc_details = player_data_map[race_id]['CalculationDetails']
+                    race_points = current_points - prev_points
+                    prev_points = current_points
+                else:
+                    race_points = 0
+                    calc_details = ""
+                    
+                # Create new calculation details based on per-race points
+                new_calc_details = self._regenerate_calculation_details(
+                    race_id, 
+                    calc_details, 
+                    race_results_df
+                )
+                
+                per_race_player_results.append({
+                    'RaceID': race_id,
+                    'PlayerID': player_id,
+                    'Points': race_points,
+                    'CumulativePoints': prev_points,
+                    'CalculationDetails': new_calc_details
+                })
+        
+        # Return the processed results
+        if per_race_player_results:
+            return pd.DataFrame(per_race_player_results)
+        else:
+            return player_results
+
+    def calculate_player_points_for_race(self, race_id):
+        """
+        Calculate fantasy points for all players for a specific race,
+        including substitution handling and Abu Dhabi double points.
+        
+        Args:
+            race_id (str): Race ID
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self._check_excel_access():
+            return False
+        
+        try:
+            # Load necessary data
+            data = self.load_data(refresh=True)
+            if not data:
+                return False
+            
+            race_results = data['race_results']
+            player_picks = data['player_picks']
+            driver_assignments = data['driver_assignments']
+            races = data['races']
+            
+            # Get race date
+            race_info = races[races['RaceID'] == race_id]
+            if race_info.empty:
+                logger.error(f"Race {race_id} not found")
+                return False
+                
+            race_date = race_info.iloc[0]['Date']
+            
+            # Check if this is Abu Dhabi (last race) which counts double
+            is_abu_dhabi = (race_id == 'ABU')
+            multiplier = 2 if is_abu_dhabi else 1
+            
+            # Filter for this specific race
+            race_results_filtered = race_results[race_results['RaceID'] == race_id]
+            race_assignments = driver_assignments[driver_assignments['RaceID'] == race_id]
+            
+            # Get all unique players
+            players = player_picks['PlayerID'].unique()
+            
+            # Calculate points for each player
+            player_results_data = []
+            for player_id in players:
+                # Get drivers picked by this player for the race date
+                player_drivers = player_picks[
+                    (player_picks['PlayerID'] == player_id) & 
+                    (player_picks['FromDate'] <= race_date) & 
+                    ((player_picks['ToDate'] >= race_date) | (player_picks['ToDate'].isna()))
+                ]['DriverID'].tolist()
+                
+                # Initialize points and calculation details
+                total_points = 0
+                calculation_details = []
+                
+                # Process each driver picked by this player
+                for driver_id in player_drivers:
+                    # Check if driver was substituted for this race
+                    substitution = race_assignments[race_assignments['SubstitutedForDriverID'] == driver_id]
+                    
+                    if not substitution.empty:
+                        # Driver was substituted, use substitute's points
+                        substitute_id = substitution.iloc[0]['DriverID']
+                        substitute_points = race_results_filtered[race_results_filtered['DriverID'] == substitute_id]
+                        
+                        if not substitute_points.empty:
+                            driver_points = substitute_points.iloc[0]['Points'] * multiplier
+                            total_points += driver_points
+                            
+                            if is_abu_dhabi:
+                                calculation_details.append(f"{driver_id} (subbed by {substitute_id}): {substitute_points.iloc[0]['Points']} x2 = {driver_points}")
+                            else:
+                                calculation_details.append(f"{driver_id} (subbed by {substitute_id}): {driver_points}")
+                                
+                            logger.info(f"Player {player_id} scored {driver_points} points from substitute driver {substitute_id} for {driver_id}")
+                    else:
+                        # No substitution, use driver's own points
+                        driver_points = race_results_filtered[race_results_filtered['DriverID'] == driver_id]
+                        
+                        if not driver_points.empty:
+                            points = driver_points.iloc[0]['Points'] * multiplier
+                            total_points += points
+                            
+                            if is_abu_dhabi:
+                                calculation_details.append(f"{driver_id}: {driver_points.iloc[0]['Points']} x2 = {points}")
+                            else:
+                                calculation_details.append(f"{driver_id}: {points}")
+                                
+                            logger.info(f"Player {player_id} scored {points} points from driver {driver_id}")
+                
+                # Add player's total points for this race
+                player_results_data.append({
+                    'RaceID': race_id,
+                    'PlayerID': player_id,
+                    'Points': total_points,
+                    'CalculationDetails': ', '.join(calculation_details)
+                })
+            
+            # Save player results
+            self.save_player_results(race_id, player_results_data)
+            
+            logger.info(f"Successfully calculated player points for race {race_id}.")
+            return True
+        except Exception as e:
+            logger.error(f"Error calculating player points: {e}")
+            return False        
+        
+
+
+
+    def _process_substitutions_for_race(self, race_id, race_date, driver_points, player_drivers, player_id, calculation_details, is_abu_dhabi=False):
+        """
+        Process driver substitutions for a specific race when calculating player points.
+        
+        Args:
+            race_id (str): Race ID
+            race_date (datetime): Race date
+            driver_points (dict): Dictionary mapping driver IDs to their points
+            player_drivers (list): List of driver IDs picked by the player
+            player_id (str): Player ID
+            calculation_details (list): List to add calculation details to
+            is_abu_dhabi (bool): Whether this is the Abu Dhabi GP (double points)
+            
+        Returns:
+            float: Total points for the player after substitution processing
+        """
+        total_points = 0
+        multiplier = 2 if is_abu_dhabi else 1
+        
+        # Get race assignments (substitutions)
+        race_assignments = self.data_cache.get('driver_assignments', pd.DataFrame())
+        race_assignments = race_assignments[race_assignments['RaceID'] == race_id]
+        
+        # Process each driver picked by this player
+        for driver_id in player_drivers:
+            # Check if driver was substituted for this race
+            substitution = race_assignments[race_assignments['SubstitutedForDriverID'] == driver_id]
+            
+            if not substitution.empty:
+                # Driver was substituted, use substitute's points
+                substitute_id = substitution.iloc[0]['DriverID']
+                if substitute_id in driver_points:
+                    substitute_points = driver_points[substitute_id]
+                    points = substitute_points * multiplier
+                    total_points += points
+                    
+                    if is_abu_dhabi:
+                        calculation_details.append(f"{driver_id} (subbed by {substitute_id}): {substitute_points} x2 = {points}")
+                    else:
+                        calculation_details.append(f"{driver_id} (subbed by {substitute_id}): {points}")
+                        
+                    logger.info(f"Player {player_id} scored {points} points from substitute driver {substitute_id} for {driver_id}")
+                else:
+                    # Substitute didn't score points
+                    calculation_details.append(f"{driver_id} (subbed by {substitute_id}): 0")
+            else:
+                # No substitution, use driver's own points
+                if driver_id in driver_points:
+                    driver_point_value = driver_points[driver_id]
+                    points = driver_point_value * multiplier
+                    total_points += points
+                    
+                    if is_abu_dhabi:
+                        calculation_details.append(f"{driver_id}: {driver_point_value} x2 = {points}")
+                    else:
+                        calculation_details.append(f"{driver_id}: {points}")
+                        
+                    logger.info(f"Player {player_id} scored {points} points from driver {driver_id}")
+                else:
+                    # Driver didn't score points
+                    calculation_details.append(f"{driver_id}: 0")
+        
+        return total_points
