@@ -154,3 +154,27 @@ class CreditEfficiencyVisualization(BaseVisualization):
             ax2.plot(x_range, y_vals, 'k:', alpha=0.3)
             # Label the contour line in the middle
             mid_x = (min(credits) + max(credits)) / 2
+            mid_y = efficiency * mid_x
+            ax2.text(mid_x, mid_y, f'{efficiency} pts/credit', 
+                    fontsize=8, alpha=0.7, ha='center', va='bottom')
+        
+        # Customize the scatter plot
+        ax2.set_xlabel('Credits', fontsize=10)
+        ax2.set_ylabel('Average Points', fontsize=10)
+        ax2.set_title(f'Points vs Credits ({race_id})', fontsize=12)
+        ax2.grid(True, alpha=0.3)
+        ax2.legend(fontsize=8)
+        
+        # Add a colorbar
+        cbar = self.figure.colorbar(scatter, ax=ax2)
+        cbar.set_label('Points per Credit', fontsize=10)
+        
+        # Improve layout
+        self.figure.tight_layout()
+        self.canvas.draw()
+    
+    def on_update(self):
+        """Handle update button click"""
+        if self.controller:
+            selected_race = self.get_selected_race()
+            self.controller.update_visualization(selected_race)

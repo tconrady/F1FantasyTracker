@@ -1,11 +1,12 @@
 """
-views/visualization/head_to_head.py - Head-to-head comparison between players
+views/visualization/head_to_head.py - Head-to-head comparison visualization
 """
 
 from views.visualization.base_visualization import BaseVisualization
 import tkinter as tk
 from tkinter import ttk
 import numpy as np
+import matplotlib.pyplot as plt
 
 class HeadToHeadVisualization(BaseVisualization):
     """Head-to-head comparison visualization between two players"""
@@ -21,20 +22,20 @@ class HeadToHeadVisualization(BaseVisualization):
         super().__init__(parent, controller)
         
         # Set up controls
-        player_frame = ttk.Frame(self.controls_frame)
-        player_frame.pack(side=tk.LEFT, padx=5, pady=5)
+        controls_frame = ttk.Frame(self.controls_frame)
+        controls_frame.pack(side=tk.LEFT, padx=5, pady=5)
         
-        ttk.Label(player_frame, text="Player 1:").pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Label(controls_frame, text="Player 1:").pack(side=tk.LEFT, padx=5, pady=5)
         self.player1_var = tk.StringVar()
-        self.player1_dropdown = ttk.Combobox(player_frame, textvariable=self.player1_var, state="readonly")
+        self.player1_dropdown = ttk.Combobox(controls_frame, textvariable=self.player1_var, state="readonly")
         self.player1_dropdown.pack(side=tk.LEFT, padx=5, pady=5)
         
-        ttk.Label(player_frame, text="Player 2:").pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Label(controls_frame, text="Player 2:").pack(side=tk.LEFT, padx=5, pady=5)
         self.player2_var = tk.StringVar()
-        self.player2_dropdown = ttk.Combobox(player_frame, textvariable=self.player2_var, state="readonly")
+        self.player2_dropdown = ttk.Combobox(controls_frame, textvariable=self.player2_var, state="readonly")
         self.player2_dropdown.pack(side=tk.LEFT, padx=5, pady=5)
         
-        ttk.Button(player_frame, text="Compare", command=self.on_update).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(controls_frame, text="Compare", command=self.on_update).pack(side=tk.LEFT, padx=5, pady=5)
     
     def get_title(self):
         """Get the title for this visualization"""
@@ -44,24 +45,23 @@ class HeadToHeadVisualization(BaseVisualization):
         """Set player dropdown options
         
         Args:
-            player_options (list): List of player options
+            player_options (list): List of player option strings
         """
         self.player1_dropdown['values'] = player_options
         self.player2_dropdown['values'] = player_options
         
-        # Set default selections if options available
-        if player_options:
+        # Select first two different players by default if available
+        if len(player_options) > 1:
             self.player1_dropdown.current(0)
-            if len(player_options) > 1:
-                self.player2_dropdown.current(1)
-            else:
-                self.player2_dropdown.current(0)
+            self.player2_dropdown.current(1)
+        elif player_options:
+            self.player1_dropdown.current(0)
     
     def get_selected_players(self):
         """Get selected players
         
         Returns:
-            tuple: (player1_id, player2_id)
+            tuple: (player1_id, player2_id) or (None, None) if not selected
         """
         player1 = self.player1_var.get()
         player2 = self.player2_var.get()
@@ -70,9 +70,16 @@ class HeadToHeadVisualization(BaseVisualization):
             return None, None
         
         # Extract player IDs
-        player1_id = player1.split('(')[-1].split(')')[0]
-        player2_id = player2.split('(')[-1].split(')')[0]
-        
+        if '(' in player1 and ')' in player1:
+            player1_id = player1.split('(')[-1].split(')')[0]
+        else:
+            player1_id = player1
+            
+        if '(' in player2 and ')' in player2:
+            player2_id = player2.split('(')[-1].split(')')[0]
+        else:
+            player2_id = player2
+            
         return player1_id, player2_id
     
     def update(self, data):
@@ -81,10 +88,10 @@ class HeadToHeadVisualization(BaseVisualization):
         Args:
             data (dict): Contains:
                 - completed_races (list): List of completed race IDs
-                - race_dates (dict): Mapping of race ID to date
-                - player1_data (dict): First player's data
-                - player2_data (dict): Second player's data
-                - head_to_head_stats (dict): Head-to-head statistics
+                - race_dates (dict): Dictionary mapping race ID to date string
+                - player1_data (dict): Dictionary with player1 data
+                - player2_data (dict): Dictionary with player2 data
+                - head_to_head_stats (dict): Dictionary with head-to-head statistics
         """
         if not data:
             self.show_placeholder("No data available for visualization")
@@ -103,21 +110,28 @@ class HeadToHeadVisualization(BaseVisualization):
         # Clear previous plot
         self.figure.clear()
         
-        # Create grid for subplots
+        # Create three subplots in a 2x2 grid with specific height and width ratios
         gs = self.figure.add_gridspec(2, 2, height_ratios=[1, 1], width_ratios=[2, 1])
         
-        # Race-by-race comparison (top left)
-        ax1 = self.figure.add_subplot(gs[0, 0])
+        ax1 = self.figure.add_subplot(gs[0, 0])  # Race-by-race comparison
+        ax2 = self.figure.add_subplot(gs[1, 0])  # Cumulative points
+        ax3 = self.figure.add_subplot(gs[:, 1])  # Head-to-head stats
         
-        # Get race points for each player
-        player1_points = [player1_data.get('race_points', {}).get(race, 0) for race in completed_races]
-        player2_points = [player2_data.get('race_points', {}).get(race, 0) for race in completed_races]
+        # Race-by-race comparison
+        player1_name = player1_data.get('name', 'Player 1')
+        player2_name = player2_data.get('name', 'Player 2')
+        
+        player1_race_points = player1_data.get('race_points', {})
+        player2_race_points = player2_data.get('race_points', {})
         
         x = np.arange(len(completed_races))
         width = 0.35
         
-        bars1 = ax1.bar(x - width/2, player1_points, width, label=player1_data.get('name', 'Player 1'), color='royalblue')
-        bars2 = ax1.bar(x + width/2, player2_points, width, label=player2_data.get('name', 'Player 2'), color='darkorange')
+        p1_points = [player1_race_points.get(race, 0) for race in completed_races]
+        p2_points = [player2_race_points.get(race, 0) for race in completed_races]
+        
+        bars1 = ax1.bar(x - width/2, p1_points, width, label=player1_name, color='royalblue')
+        bars2 = ax1.bar(x + width/2, p2_points, width, label=player2_name, color='darkorange')
         
         # Add values on top of bars
         for bars in [bars1, bars2]:
@@ -126,7 +140,7 @@ class HeadToHeadVisualization(BaseVisualization):
                 if height > 0:
                     ax1.annotate(f'{height:.1f}',
                                 xy=(bar.get_x() + bar.get_width() / 2, height),
-                                xytext=(0, 3),
+                                xytext=(0, 3),  # 3 points vertical offset
                                 textcoords="offset points",
                                 ha='center', va='bottom', fontsize=8)
         
@@ -137,26 +151,24 @@ class HeadToHeadVisualization(BaseVisualization):
         ax1.grid(axis='y', alpha=0.3)
         ax1.legend()
         
-        # Cumulative points comparison (bottom left)
-        ax2 = self.figure.add_subplot(gs[1, 0])
+        # Cumulative points comparison
+        player1_cum = player1_data.get('cumulative_points', [])
+        player2_cum = player2_data.get('cumulative_points', [])
         
-        player1_cumulative = player1_data.get('cumulative_points', [])
-        player2_cumulative = player2_data.get('cumulative_points', [])
-        
-        ax2.plot(completed_races, player1_cumulative, 'o-', linewidth=2, label=player1_data.get('name', 'Player 1'), color='royalblue')
-        ax2.plot(completed_races, player2_cumulative, 'o-', linewidth=2, label=player2_data.get('name', 'Player 2'), color='darkorange')
+        ax2.plot(completed_races, player1_cum, 'o-', linewidth=2, label=player1_name, color='royalblue')
+        ax2.plot(completed_races, player2_cum, 'o-', linewidth=2, label=player2_name, color='darkorange')
         
         # Add final point values
-        if player1_cumulative:
-            ax2.annotate(f'{player1_cumulative[-1]:.1f}',
-                       xy=(completed_races[-1], player1_cumulative[-1]),
+        if player1_cum:
+            ax2.annotate(f'{player1_cum[-1]:.1f}',
+                       xy=(completed_races[-1], player1_cum[-1]),
                        xytext=(5, 0),
                        textcoords="offset points",
                        fontsize=9, fontweight='bold', color='royalblue')
         
-        if player2_cumulative:
-            ax2.annotate(f'{player2_cumulative[-1]:.1f}',
-                       xy=(completed_races[-1], player2_cumulative[-1]),
+        if player2_cum:
+            ax2.annotate(f'{player2_cum[-1]:.1f}',
+                       xy=(completed_races[-1], player2_cum[-1]),
                        xytext=(5, 0),
                        textcoords="offset points",
                        fontsize=9, fontweight='bold', color='darkorange')
@@ -168,51 +180,62 @@ class HeadToHeadVisualization(BaseVisualization):
         ax2.grid(True, alpha=0.3)
         ax2.legend()
         
-        # Head-to-head stats (right side)
-        ax3 = self.figure.add_subplot(gs[:, 1])
+        # Head-to-head stats as text
         ax3.axis('off')
         
-        # Format and display stats
+        # Format stats
+        total_races = head_to_head_stats.get('total_races', 0)
+        p1_wins = head_to_head_stats.get('player1_wins', 0)
+        p2_wins = head_to_head_stats.get('player2_wins', 0)
+        draws = head_to_head_stats.get('draws', 0)
+        
+        p1_total = head_to_head_stats.get('player1_total', 0)
+        p2_total = head_to_head_stats.get('player2_total', 0)
+        diff = abs(p1_total - p2_total)
+        
+        p1_avg = head_to_head_stats.get('player1_avg', 0)
+        p2_avg = head_to_head_stats.get('player2_avg', 0)
+        
+        p1_best = head_to_head_stats.get('player1_best', 0)
+        p2_best = head_to_head_stats.get('player2_best', 0)
+        
+        p1_best_race = head_to_head_stats.get('player1_best_race', 'None')
+        p2_best_race = head_to_head_stats.get('player2_best_race', 'None')
+        
+        # Draw stats table as text
+        ax3.set_title(f'Head-to-Head Stats', fontsize=12)
+        
         stats_text = (
-            f"Total Races: {head_to_head_stats.get('total_races', 0)}\n\n"
+            f"Total Races: {total_races}\n\n"
             f"Race Wins:\n"
-            f"{player1_data.get('name', 'Player 1')}: {head_to_head_stats.get('player1_wins', 0)}\n"
-            f"{player2_data.get('name', 'Player 2')}: {head_to_head_stats.get('player2_wins', 0)}\n"
-            f"Draws: {head_to_head_stats.get('draws', 0)}\n\n"
+            f"{player1_name}: {p1_wins}\n"
+            f"{player2_name}: {p2_wins}\n"
+            f"Draws: {draws}\n\n"
             f"Total Points:\n"
-            f"{player1_data.get('name', 'Player 1')}: {head_to_head_stats.get('player1_total', 0):.1f}\n"
-            f"{player2_data.get('name', 'Player 2')}: {head_to_head_stats.get('player2_total', 0):.1f}\n"
-            f"Difference: {abs(head_to_head_stats.get('player1_total', 0) - head_to_head_stats.get('player2_total', 0)):.1f}\n\n"
+            f"{player1_name}: {p1_total:.1f}\n"
+            f"{player2_name}: {p2_total:.1f}\n"
+            f"Difference: {diff:.1f}\n\n"
             f"Average Points Per Race:\n"
-            f"{player1_data.get('name', 'Player 1')}: {head_to_head_stats.get('player1_avg', 0):.2f}\n"
-            f"{player2_data.get('name', 'Player 2')}: {head_to_head_stats.get('player2_avg', 0):.2f}\n\n"
+            f"{player1_name}: {p1_avg:.2f}\n"
+            f"{player2_name}: {p2_avg:.2f}\n\n"
             f"Best Race Performance:\n"
-            f"{player1_data.get('name', 'Player 1')}: {head_to_head_stats.get('player1_best', 0):.1f} pts ({head_to_head_stats.get('player1_best_race', 'N/A')})\n"
-            f"{player2_data.get('name', 'Player 2')}: {head_to_head_stats.get('player2_best', 0):.1f} pts ({head_to_head_stats.get('player2_best_race', 'N/A')})"
+            f"{player1_name}: {p1_best:.1f} pts ({p1_best_race})\n"
+            f"{player2_name}: {p2_best:.1f} pts ({p2_best_race})"
         )
         
         ax3.text(0.5, 0.5, stats_text, 
                 horizontalalignment='center', verticalalignment='center',
                 transform=ax3.transAxes, fontsize=10, linespacing=1.5)
         
-        # Set title
-        self.figure.suptitle(f'Head-to-Head: {player1_data.get("name", "Player 1")} vs {player2_data.get("name", "Player 2")}', 
-                            fontsize=14, fontweight='bold')
-        
-        # Adjust layout
-        self.figure.tight_layout(rect=[0, 0, 1, 0.95])  # Leave room for suptitle
+        # Improve layout
+        self.figure.tight_layout()
         self.canvas.draw()
     
     def on_update(self):
-        """Handle update button click"""
-        player1_id, player2_id = self.get_selected_players()
-        if not player1_id or not player2_id:
-            self.show_placeholder("Please select two players to compare")
-            return
-            
-        if player1_id == player2_id:
-            self.show_placeholder("Please select two different players to compare")
-            return
-            
+        """Handle compare button click"""
         if self.controller:
-            self.controller.update_visualization(player1_id, player2_id)
+            player1_id, player2_id = self.get_selected_players()
+            if player1_id and player2_id:
+                self.controller.update_visualization(player1_id, player2_id)
+            else:
+                self.show_placeholder("Please select two players to compare")
