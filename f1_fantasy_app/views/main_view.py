@@ -60,8 +60,15 @@ class MainView:
         # Visualizations menu
         viz_menu = Menu(menubar, tearoff=0)
         viz_menu.add_command(label="Season Standings", command=self.on_show_standings)
-        viz_menu.add_command(label="Race Breakdown", command=self.on_show_race_breakdown)
-        viz_menu.add_command(label="Driver Points Table", command=self.on_show_points_table)
+        viz_menu.add_command(label="Points Table", command=self.on_show_points_table)
+        viz_menu.add_command(label="Driver Performance", command=self.on_show_driver_performance)
+        viz_menu.add_command(label="Head to Head Comparison", command=self.on_show_head_to_head)
+        viz_menu.add_command(label="Team Performance", command=self.on_show_team_performance)
+        viz_menu.add_command(label="Race Analysis", command=self.on_show_race_analysis)
+        viz_menu.add_command(label="Driver Points by Player", command=self.on_show_player_driver_points)
+        viz_menu.add_command(label="Credit Efficiency", command=self.on_show_credit_efficiency)
+        viz_menu.add_command(label="Race Points History", command=self.on_show_race_points_history)
+        viz_menu.add_command(label="Points Breakdown", command=self.on_show_points_breakdown)
         menubar.add_cascade(label="Visualizations", menu=viz_menu)
         
         # Help menu
@@ -130,3 +137,35 @@ class MainView:
         messagebox.showinfo("About F1 Fantasy Tracker", 
                            "F1 Fantasy Tracker 2025\n\n"
                            "A tool to track your F1 Fantasy League performance.")
+        
+    def on_show_driver_performance(self):
+        """Show driver performance visualization handler"""
+        messagebox.showinfo("Show Driver Performance", "This will be implemented by the controller")
+
+    def on_show_head_to_head(self):
+        """Show head-to-head comparison visualization handler"""
+        messagebox.showinfo("Show Head to Head", "This will be implemented by the controller")
+
+    def on_show_team_performance(self):
+        """Show team performance visualization handler"""
+        messagebox.showinfo("Show Team Performance", "This will be implemented by the controller")
+
+    def on_show_race_analysis(self):
+        """Show race analysis visualization handler"""
+        messagebox.showinfo("Show Race Analysis", "This will be implemented by the controller")
+
+    def on_show_player_driver_points(self):
+        """Show player driver points visualization handler"""
+        messagebox.showinfo("Show Driver Points by Player", "This will be implemented by the controller")
+
+    def on_show_credit_efficiency(self):
+        """Show credit efficiency visualization handler"""
+        messagebox.showinfo("Show Credit Efficiency", "This will be implemented by the controller")
+
+    def on_show_race_points_history(self):
+        """Show race points history visualization handler"""
+        messagebox.showinfo("Show Race Points History", "This will be implemented by the controller")
+
+    def on_show_points_breakdown(self):
+        """Show points breakdown visualization handler"""
+        messagebox.showinfo("Show Points Breakdown", "This will be implemented by the controller")
