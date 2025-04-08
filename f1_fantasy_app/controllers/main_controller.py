@@ -295,7 +295,33 @@ class MainController:
     
     def show_update_race_dialog(self):
         """Show dialog to update race results"""
-        tk.messagebox.showinfo("Not Implemented", "This functionality is not yet implemented")
+        # Switch to Race Management tab
+        self.view.notebook.select(self.view.notebook.index(self.race_view.frame))
+        
+        # Get next race to update
+        data = self.data_manager.load_data()
+        if not data:
+            tk.messagebox.showerror("Error", "Failed to load data")
+            return
+            
+        # Find next race that needs results
+        races = data['races']
+        upcoming_races = races[races['Status'] == 'Upcoming'].sort_values(by='Date')
+        
+        if not upcoming_races.empty:
+            next_race = upcoming_races.iloc[0]
+            # Pre-select the race in the dropdown
+            race_id = next_race['RaceID']
+            race_name = next_race['Name']
+            race_selection = f"{race_id} - {race_name}"
+            
+            if race_selection in self.race_view.race_selector['values']:
+                self.race_view.update_race_var.set(race_selection)
+                
+            # Focus on the manual entry button since that's most likely what's needed
+            self.race_controller.show_manual_point_entry()
+        else:
+            tk.messagebox.showinfo("Information", "All races have been updated")
     
     def show_add_substitution_dialog(self):
         """Show dialog to add a driver substitution"""
@@ -312,7 +338,32 @@ class MainController:
     
     def show_race_breakdown(self):
         """Show race breakdown visualization"""
-        tk.messagebox.showinfo("Not Implemented", "This functionality is not yet implemented")
+        # Switch to Standings tab
+        self.view.notebook.select(self.view.notebook.index(self.standings_view.frame))
+        
+        # Get most recent race
+        data = self.data_manager.load_data()
+        if not data:
+            tk.messagebox.showerror("Error", "Failed to load data")
+            return
+        
+        races = data['races']
+        completed_races = races[races['Status'] == 'Completed'].sort_values(by='Date', ascending=False)
+        
+        if not completed_races.empty:
+            last_race = completed_races.iloc[0]
+            race_id = last_race['RaceID']
+            race_name = last_race['Name']
+            race_selection = f"{race_id} - {race_name}"
+            
+            # Pre-select race in dropdown
+            if race_selection in self.standings_view.race_dropdown['values']:
+                self.standings_view.race_var.set(race_selection)
+                
+            # Trigger the breakdown visualization
+            self.standings_controller.show_race_breakdown()
+        else:
+            tk.messagebox.showinfo("Information", "No completed races found")
     
     def show_points_table(self):
         """Show points table visualization"""

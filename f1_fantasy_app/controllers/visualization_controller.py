@@ -1988,7 +1988,7 @@ class PlayerDriverPointsController:
         player_data.sort(key=lambda x: x['totalPoints'], reverse=True)
         
         return player_data
-    
+        
     def process_all_races_data(self, data, completed_races):
         """Process data for all races combined visualization
         
@@ -2002,9 +2002,24 @@ class PlayerDriverPointsController:
         # Get unique players
         players = data['player_results']['PlayerID'].unique()
         
+        # Create player name dictionary for lookup
+        player_names_dict = {}
+        if 'player_picks' in data:
+            for _, row in data['player_picks'].iterrows():
+                player_names_dict[row['PlayerID']] = row['PlayerName']
+        
+        # Sort races chronologically
+        race_dates = {race_id: data['races'][data['races']['RaceID'] == race_id]['Date'].iloc[0] 
+                    for race_id in completed_races}
+        sorted_races = sorted(completed_races, key=lambda r: race_dates[r])
+        
         player_data = []
+        # Track positions from previous race for position changes
+        prev_positions = {}
+        
         for player_id in players:
-            player_name = data['player_picks'][data['player_picks']['PlayerID'] == player_id]['PlayerName'].values[0] if not data['player_picks'][data['player_picks']['PlayerID'] == player_id].empty else f"Player {player_id}"
+            # Get player name safely
+            player_name = player_names_dict.get(player_id, f"Player {player_id}")
             
             # Get player's total points across all races (sum of per-race points)
             player_total = data['player_results'][data['player_results']['PlayerID'] == player_id]['Points'].sum()
@@ -2012,7 +2027,7 @@ class PlayerDriverPointsController:
             # Get points by driver across all races
             driver_totals = {}
             
-            for race_id in completed_races:
+            for race_id in sorted_races:
                 race_date = data['races'][data['races']['RaceID'] == race_id]['Date'].iloc[0]
                 
                 # Get drivers for this player at this race date
@@ -2069,12 +2084,26 @@ class PlayerDriverPointsController:
             # Take top 2 drivers by points
             player_data.append({
                 'player': player_name,
+                'player_id': player_id,  # Store player_id in the data
                 'driver1': driver_list[0],
                 'driver2': driver_list[1] if len(driver_list) > 1 else {'id': 'N/A', 'name': 'No Driver', 'points': 0},
-                'totalPoints': player_total
+                'totalPoints': player_total,
+                'previousPosition': prev_positions.get(player_id, 'N/A'),
+                'positionChange': 0  # Will be calculated after sorting
             })
         
-        # Sort by total points
+        # Sort by total points (highest first)
         player_data.sort(key=lambda x: x['totalPoints'], reverse=True)
+        
+        # Calculate position changes
+        for i, player in enumerate(player_data):
+            current_position = i + 1
+            previous_position = player['previousPosition']
+            
+            if previous_position != 'N/A':
+                player['positionChange'] = previous_position - current_position
+            
+            # Store current position for next time
+            prev_positions[player['player_id']] = current_position
         
         return player_data
