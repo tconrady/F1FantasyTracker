@@ -262,3 +262,119 @@ class Config:
             int: Abu Dhabi multiplier
         """
         return self.get('fantasy.abu_dhabi_multiplier')
+
+    def is_file_accessible(filepath, mode='r'):
+        """
+        Check if a file is accessible with the given mode.
+        
+        Args:
+            filepath (str): Path to the file
+            mode (str): Access mode to check ('r' for read, 'w' for write)
+            
+        Returns:
+            bool: True if accessible, False otherwise
+        """
+        try:
+            # Try opening the file in the given mode
+            f = open(filepath, mode)
+            f.close()
+            return True
+        except IOError:
+            return False
+
+    def create_backup(excel_file, backup_dir=None):
+        """
+        Create a backup of an Excel file.
+        
+        Args:
+            excel_file (str): Path to the Excel file
+            backup_dir (str, optional): Backup directory
+            
+        Returns:
+            str: Path to the backup file or None if failed
+        """
+        try:
+            # Check if the file exists and is accessible
+            if not is_file_accessible(excel_file, 'r'):
+                logger.error(f"Cannot access {excel_file} for backup")
+                return None
+            
+            # Create backup directory if it doesn't exist
+            if backup_dir and not os.path.exists(backup_dir):
+                os.makedirs(backup_dir)
+                logger.info(f"Created backup directory: {backup_dir}")
+            
+            # Generate backup filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = os.path.basename(excel_file)
+            backup_name = f"{os.path.splitext(filename)[0]}_backup_{timestamp}.xlsx"
+            
+            if backup_dir:
+                backup_path = os.path.join(backup_dir, backup_name)
+            else:
+                backup_path = os.path.join(os.path.dirname(excel_file), backup_name)
+            
+            # Copy file
+            import shutil
+            shutil.copy2(excel_file, backup_path)
+            logger.info(f"Backup created at {backup_path}")
+            
+            return backup_path
+            
+        except Exception as e:
+            logger.error(f"Error creating backup: {e}")
+            return None
+
+    def safe_save_dataframe(df, excel_file, sheet_name, if_sheet_exists='replace'):
+        """
+        Safely save a DataFrame to an Excel sheet.
+        
+        Args:
+            df (pd.DataFrame): DataFrame to save
+            excel_file (str): Path to Excel file
+            sheet_name (str): Sheet name to save to
+            if_sheet_exists (str): How to handle existing sheets
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Create a backup before modifying
+            create_backup(excel_file)
+            
+            # Save the DataFrame
+            with pd.ExcelWriter(excel_file, engine='openpyxl', mode='a', if_sheet_exists=if_sheet_exists) as writer:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            logger.info(f"DataFrame saved to sheet {sheet_name} in {excel_file}")
+            return True
+            
+        except PermissionError:
+            logger.error(f"Permission denied when saving to {excel_file}. The file may be open in Excel.")
+            return False
+        except Exception as e:
+            logger.error(f"Error saving DataFrame to Excel: {e}")
+            return False
+
+    def safe_read_excel(excel_file, sheet_name=None, **kwargs):
+        """
+        Safely read an Excel file or sheet.
+        
+        Args:
+            excel_file (str): Path to Excel file
+            sheet_name (str, optional): Sheet name to read
+            **kwargs: Additional arguments for pd.read_excel
+            
+        Returns:
+            pd.DataFrame or dict: DataFrame(s) read from Excel
+        """
+        try:
+            if not is_file_accessible(excel_file, 'r'):
+                logger.error(f"Cannot access {excel_file} for reading")
+                return None
+            
+            return pd.read_excel(excel_file, sheet_name=sheet_name, **kwargs)
+            
+        except Exception as e:
+            logger.error(f"Error reading Excel file {excel_file}: {e}")
+            return None

@@ -1,5 +1,5 @@
 """
-f1_fantasy_app.py - Main application entry point for F1 Fantasy Tracker
+f1_fantasy_app.py - Main entry point for the F1 Fantasy Tracker application
 """
 
 import tkinter as tk
@@ -7,13 +7,6 @@ import os
 import sys
 import logging
 from datetime import datetime
-
-# Add parent directory to path to ensure imports work correctly
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-# Import MVC components
-from models.data_manager import F1DataManager
-from controllers.main_controller import MainController
 
 # Configure logging
 logging.basicConfig(
@@ -26,29 +19,42 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Import application components
+from models.data_manager import F1DataManager
+from controllers.main_controller import MainController
+
 def main():
-    """Main application entry point"""
+    """Main entry point for the application"""
     try:
         # Set up the Excel file path
-        excel_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'F1_Fantasy_2025.xlsx')
+        excel_file = 'F1_Fantasy_2025.xlsx'
         
         # Create the root Tk instance
         root = tk.Tk()
-        
-        # Set application icon if available
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images', 'f1_icon.ico')
-        if os.path.exists(icon_path):
-            root.iconbitmap(icon_path)
+        root.title("F1 Fantasy Tracker 2025")
+        root.geometry("1200x800")
         
         # Create main controller
         controller = MainController(root, excel_file)
         
-        # Run the application
-        controller.run()
+        # Start the application
+        logger.info("Starting F1 Fantasy Tracker application")
+        root.mainloop()
+    
     except Exception as e:
         logger.critical(f"Unhandled exception in main application: {e}", exc_info=True)
-        if 'root' in locals():
-            tk.messagebox.showerror("Critical Error", f"An unhandled error occurred: {e}\n\nSee log file for details.")
+        
+        # Show error dialog if GUI is available
+        try:
+            if 'root' in locals() and root:
+                from tkinter import messagebox
+                messagebox.showerror("Critical Error", 
+                                    f"An unhandled error occurred: {e}\n\nSee log file for details.")
+        except:
+            pass
+        
+        # Print to console as fallback
+        print(f"CRITICAL ERROR: {e}")
 
 if __name__ == "__main__":
     main()
