@@ -11,7 +11,7 @@ import logging
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,6 @@ class PlayerController:
     Controller for player management.
     Handles actions related to adding players and changing driver picks.
     """
-    
     def __init__(self, view, data_manager):
         """
         Initialize the player controller.
@@ -32,89 +31,121 @@ class PlayerController:
         self.view = view
         self.data_manager = data_manager
         
+        logger.info("Initializing PlayerController")
+        
         # Connect view events to controller methods
         self.connect_view_events()
         
         # Load data
         self.load_data()
-    
+        
+        logger.info("PlayerController initialization completed")
+
+
     def connect_view_events(self):
         """Connect view event handlers to controller methods"""
+        logger.info("Connecting player view events")
+        
+        # Core view event handlers
         self.view.on_add_player = self.add_player
         self.view.on_refresh_players = self.load_data
         self.view.on_change_driver = self.show_change_driver_dialog
         self.view.on_player_selected = self.player_selected
         
         # Connect driver selection events
-        self.view.driver1_var.trace_add("write", self.driver1_selected)
-        self.view.driver2_var.trace_add("write", self.driver2_selected)
+        if hasattr(self.view, 'driver1_var') and hasattr(self.view, 'driver2_var'):
+            logger.info("Connecting driver selection events")
+            self.view.driver1_var.trace_add("write", self.driver1_selected)
+            self.view.driver2_var.trace_add("write", self.driver2_selected)
+        
+        # Directly connect to button commands to ensure they work
+        self.connect_buttons()
+        
+        logger.info("Player view events connected successfully")
+    
+    def connect_buttons(self):
+        """Directly connect to button commands"""
+        try:
+            # Find the Add Player button and connect it directly
+            add_button = self.find_button_by_text(self.view.frame, "Add Player")
+            if add_button:
+                logger.info("Found Add Player button - connecting directly")
+                add_button.config(command=self.add_player)
+            else:
+                logger.warning("Add Player button not found in PlayerView")
+                
+            # Find the Refresh Players button and connect it directly
+            refresh_button = self.find_button_by_text(self.view.frame, "Refresh Players")
+            if refresh_button:
+                logger.info("Found Refresh Players button - connecting directly")
+                refresh_button.config(command=self.load_data)
+            
+            # Find the Change Driver button and connect it directly
+            change_button = self.find_button_by_text(self.view.frame, "Change Driver")
+            if change_button:
+                logger.info("Found Change Driver button - connecting directly")
+                change_button.config(command=self.show_change_driver_dialog)
+                
+        except Exception as e:
+            logger.error(f"Error connecting buttons directly: {e}")
+    
+    def find_button_by_text(self, parent, text):
+        """
+        Recursively search for a button with specific text
+        
+        Args:
+            parent: Parent widget to search in
+            text: Button text to search for
+            
+        Returns:
+            Button widget or None if not found
+        """
+        # Check if this widget has the target text
+        if hasattr(parent, 'cget') and hasattr(parent, 'winfo_class'):
+            try:
+                if parent.winfo_class() in ('TButton', 'Button') and parent.cget('text') == text:
+                    return parent
+            except:
+                pass  # Not all widgets have text or winfo_class
+        
+        # Check all children
+        for child in parent.winfo_children():
+            result = self.find_button_by_text(child, text)
+            if result:
+                return result
+        
+        return None
     
     def load_data(self):
         """Load data from the data manager and update the view"""
+        logger.info("Loading player data")
+        
         # Load data
         data = self.data_manager.load_data()
         if not data:
+            logger.error("Failed to load data from data manager")
             return
         
         # Update driver dropdown options
         drivers = data['drivers']
         driver_options = [f"{row['Name']} ({row['DriverID']}) - {row['Credits']} credits" 
                          for _, row in drivers.sort_values(by='Name').iterrows()]
+        logger.info(f"Setting {len(driver_options)} driver options")
         self.view.set_driver_options(driver_options)
         
         # Update player list
         self.update_player_list()
+        
+        logger.info("Player data loaded successfully")
     
-    def update_player_list(self):
-        """Update the player list in the view"""
-        # Load data
-        data = self.data_manager.load_data()
-        if not data:
-            return
-        
-        # Get player picks
-        player_picks = data['player_picks']
-        drivers = data['drivers']
-        
-        # Process player data
-        players_data = []
-        
-        # Get active picks (ToDate is null)
-        active_picks = player_picks[player_picks['ToDate'].isna()]
-        
-        # Get unique players
-        unique_players = active_picks['PlayerID'].unique()
-        
-        for player_id in unique_players:
-            player_data = active_picks[active_picks['PlayerID'] == player_id]
-            player_name = player_data['PlayerName'].iloc[0]
-            
-            # Get driver names and calculate total credits
-            driver_ids = player_data['DriverID'].tolist()
-            driver_names = []
-            total_credits = 0
-            
-            for driver_id in driver_ids:
-                driver = drivers[drivers['DriverID'] == driver_id]
-                if not driver.empty:
-                    driver_names.append(f"{driver['Name'].iloc[0]} ({driver_id})")
-                    total_credits += driver['Credits'].iloc[0]
-            
-            # Add to players data
-            players_data.append((
-                player_id,
-                player_name,
-                ', '.join(driver_names),
-                total_credits
-            ))
-        
-        # Update the view
-        self.view.update_player_list(players_data)
     
     def add_player(self):
         """Add a new player"""
+        logger.info("Add player method called")
+        
         # Get form data
         player_id, player_name, driver1_id, driver2_id = self.view.get_form_data()
+        logger.info(f"Form data: {player_id}, {player_name}, {driver1_id}, {driver2_id}")
         
         # Validate inputs
         if not player_id or not player_name:
@@ -156,6 +187,59 @@ class PlayerController:
         else:
             messagebox.showerror("Error", "Failed to add player")
     
+    # The rest of the PlayerController methods remain largely unchanged...
+    
+    def update_player_list(self):
+        """Update the player list in the view"""
+        logger.info("Updating player list")
+        
+        # Load data
+        data = self.data_manager.load_data()
+        if not data:
+            logger.error("Failed to load data for player list update")
+            return
+        
+        # Get player picks
+        player_picks = data['player_picks']
+        drivers = data['drivers']
+        
+        # Process player data
+        players_data = []
+        
+        # Get active picks (ToDate is null)
+        active_picks = player_picks[player_picks['ToDate'].isna()]
+        
+        # Get unique players
+        unique_players = active_picks['PlayerID'].unique()
+        logger.info(f"Found {len(unique_players)} unique players")
+        
+        for player_id in unique_players:
+            player_data = active_picks[active_picks['PlayerID'] == player_id]
+            player_name = player_data['PlayerName'].iloc[0]
+            
+            # Get driver names and calculate total credits
+            driver_ids = player_data['DriverID'].tolist()
+            driver_names = []
+            total_credits = 0
+            
+            for driver_id in driver_ids:
+                driver = drivers[drivers['DriverID'] == driver_id]
+                if not driver.empty:
+                    driver_names.append(f"{driver['Name'].iloc[0]} ({driver_id})")
+                    total_credits += driver['Credits'].iloc[0]
+            
+            # Add to players data
+            players_data.append((
+                player_id,
+                player_name,
+                ', '.join(driver_names),
+                total_credits
+            ))
+        
+        # Update the view
+        logger.info(f"Updating view with {len(players_data)} players")
+        self.view.update_player_list(players_data)
+
     def driver1_selected(self, *args):
         """Handle first driver selection"""
         driver = self.view.driver1_var.get()

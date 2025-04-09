@@ -1,9 +1,9 @@
 """
-controllers/main_controller.py - Main application controller
+controllers/main_controller.py - Main application controller with debugging
 """
 
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, ttk, messagebox
 import os
 import logging
 from datetime import datetime
@@ -16,6 +16,9 @@ from views.standings_view import StandingsView
 from controllers.player_controller import PlayerController
 from controllers.race_controller import RaceController
 from controllers.standings_controller import StandingsController
+
+# Import debug utilities
+from utils.debug_utils import debug_trace, debug_print_structure, debug_popup, inspect_tkinter_widget
 
 # Visualization views
 from views.visualization.season_progress import SeasonProgressVisualization
@@ -40,7 +43,7 @@ from controllers.visualization_controller import (
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s',
     handlers=[
         logging.FileHandler('f1_fantasy.log'),
         logging.StreamHandler()
@@ -57,7 +60,8 @@ class MainController:
     - Handles main menu commands
     - Manages application-wide operations
     """
-    
+
+    @debug_trace
     def __init__(self, root, excel_file):
         """
         Initialize the main controller.
@@ -70,36 +74,62 @@ class MainController:
         self.excel_file = excel_file
         self.data_manager = F1DataManager(excel_file)
         
-        # Initialize the main view
+        logger.info("Initializing MainController")
+        
+        # Initialize the main view first
         self.view = MainView(root)
         
+        # Initialize views second
         self.init_views()
+        
+        # Initialize controllers third and connect their view events
         self.init_controllers()
-
-        # Connect view events to controller methods
+        
+        # Connect main view events fourth (AFTER controllers are set up)
         self.connect_view_events()
-        
-        # Initialize sub-controllers and their views
-        self.init_player_controller()
-        self.init_visualization_controllers()
-        
-        # Check if Excel file exists and offer to initialize if not
-        self.check_excel_file()
-        
-        # Set status
-        self.view.set_status("Ready")
-
-    def init_controllers(self):
-        """Initialize all controllers"""
-        self.player_controller = PlayerController(self.player_view, self.data_manager)
-        self.race_controller = RaceController(self.race_view, self.data_manager)
-        self.standings_controller = StandingsController(self.standings_view, self.data_manager)
         
         # Initialize visualization controllers
         self.init_visualization_controllers()
+        
+        # Make sure all controllers connect their view events
+        self.ensure_all_view_connections()
+
+        # Check if Excel file exists and offer to initialize if not
+        self.check_excel_file()
+        
+        # Rebuild menu to ensure all connections work
+        self.rebuild_main_menu()
+
+        # Set status
+        self.view.set_status("Ready")
+        logger.info("MainController initialization completed")
+
+    def _debug_menu_structure(self):
+        """Debug the menu structure"""
+        logger.debug("Menu structure:")
+        try:
+            menu = self.view.root.nametowidget('.menubar')
+            logger.debug(f"Main menu bar: {menu}")
+            for i in range(menu.index('end') + 1):
+                logger.debug(f"Menu {i}: {menu.entrycget(i, 'label')}")
+                
+                # Try to get submenu
+                try:
+                    submenu = menu.nametowidget(menu.entrycget(i, "menu"))
+                    logger.debug(f"  Submenu: {submenu}")
+                    for j in range(submenu.index('end') + 1):
+                        try:
+                            logger.debug(f"    Item {j}: {submenu.entrycget(j, 'label')}")
+                        except:
+                            logger.debug(f"    Item {j}: {submenu.type(j)}")
+                except Exception as e:
+                    logger.debug(f"  Error accessing submenu: {e}")
+        except Exception as e:
+            logger.debug(f"Error debugging menu: {e}")
 
     def init_views(self):
         """Initialize all views"""
+        logger.info("Initializing views")
         self.player_view = PlayerView(self.view.notebook)
         self.race_view = RaceView(self.view.notebook)
         self.standings_view = StandingsView(self.view.notebook)
@@ -108,10 +138,25 @@ class MainController:
         self.view.add_tab("Player Management", self.player_view)
         self.view.add_tab("Race Management", self.race_view)
         self.view.add_tab("Standings", self.standings_view)
+        
+        logger.info("Views initialized successfully")
+        
+    def init_controllers(self):
+        """Initialize all controllers"""
+        logger.info("Initializing controllers")
 
+        # Create controllers for all views
+        self.player_controller = PlayerController(self.player_view, self.data_manager)
+        self.race_controller = RaceController(self.race_view, self.data_manager)
+        self.standings_controller = StandingsController(self.standings_view, self.data_manager)
+        
+        logger.info("Controllers initialized successfully")
     
+
     def connect_view_events(self):
         """Connect main view event handlers to controller methods"""
+        logger.info("Connecting main view events to controller")
+        
         # Connect menu handlers
         self.view.on_initialize_system = self.initialize_system
         self.view.on_backup_data = self.backup_data
@@ -131,18 +176,165 @@ class MainController:
         self.view.on_show_credit_efficiency = self.show_credit_efficiency
         self.view.on_show_race_points_history = self.show_race_points_history
         self.view.on_show_points_breakdown = self.show_points_breakdown
-    
-    def init_player_controller(self):
-        """Initialize the player controller and view"""
-        # Create player view
-        self.player_view = PlayerView(self.view.notebook)
         
-        # Create player controller
-        self.player_controller = PlayerController(self.player_view, self.data_manager)
+        logger.info("Main view events connected successfully")
+
+    def ensure_all_view_connections(self):
+        """Make sure all controllers have connected their view events"""
+        logger.info("Ensuring all view connections")
         
-        # Add player tab to notebook
-        self.view.add_tab("Player Management", self.player_view)
+        # Make sure controllers connect their view events
+        if hasattr(self.player_controller, 'connect_view_events'):
+            self.player_controller.connect_view_events()
+            
+        if hasattr(self.race_controller, 'connect_view_events'):
+            self.race_controller.connect_view_events()
+            
+        if hasattr(self.standings_controller, 'connect_view_events'):
+            self.standings_controller.connect_view_events()
+            
+        # Ensure button commands are directly connected
+        self.ensure_button_connections()
+        
+        logger.info("All view connections ensured")
     
+    def ensure_button_connections(self):
+        """Ensure critical buttons are connected properly"""
+        logger.info("Ensuring button connections")
+        
+        # Fix player view's "Add Player" button
+        if hasattr(self.player_view, 'on_add_player'):
+            add_button = self.find_button_by_text(self.player_view.frame, "Add Player")
+            if add_button:
+                logger.info("Found Add Player button in PlayerView")
+                add_button.config(command=self.player_controller.add_player)
+        
+        # Fix change driver button
+        change_button = self.find_button_by_text(self.player_view.frame, "Change Driver")
+        if change_button:
+            logger.info("Found Change Driver button in PlayerView")
+            change_button.config(command=self.player_controller.show_change_driver_dialog)
+            
+        # Fix race view buttons
+        update_race_button = self.find_button_by_text(self.race_view.frame, "Scrape & Update Results")
+        if update_race_button:
+            logger.info("Found Update Race button in RaceView")
+            update_race_button.config(command=self.race_controller.update_race_results)
+            
+        add_sub_button = self.find_button_by_text(self.race_view.frame, "Add Substitution")
+        if add_sub_button:
+            logger.info("Found Add Substitution button in RaceView")
+            add_sub_button.config(command=self.race_controller.add_substitution)
+            
+        # Fix standings view buttons
+        show_standings_button = self.find_button_by_text(self.standings_view.frame, "Show Season Standings")
+        if show_standings_button:
+            logger.info("Found Show Standings button in StandingsView")
+            show_standings_button.config(command=self.standings_controller.show_standings)
+            
+        show_breakdown_button = self.find_button_by_text(self.standings_view.frame, "Show Race Breakdown")
+        if show_breakdown_button:
+            logger.info("Found Show Race Breakdown button in StandingsView")
+            show_breakdown_button.config(command=self.standings_controller.show_race_breakdown)
+            
+        logger.info("Button connections ensured")
+    
+    def find_button_by_text(self, parent, text):
+        """
+        Recursively search for a button with specific text
+        
+        Args:
+            parent: Parent widget to search in
+            text: Button text to search for
+            
+        Returns:
+            Button widget or None if not found
+        """
+        # Check if this widget has the target text
+        if hasattr(parent, 'cget') and hasattr(parent, 'winfo_class'):
+            try:
+                if parent.winfo_class() in ('TButton', 'Button') and parent.cget('text') == text:
+                    return parent
+            except:
+                pass  # Not all widgets have text or winfo_class
+        
+        # Check all children
+        for child in parent.winfo_children():
+            result = self.find_button_by_text(child, text)
+            if result:
+                return result
+        
+        return None
+    
+    def rebuild_main_menu(self):
+        """Rebuild the main menu to ensure all connections work"""
+        logger.info("Rebuilding main menu")
+        
+        # Create fresh menu
+        menubar = tk.Menu(self.root)
+        
+        # File menu
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Initialize System", command=self.initialize_system)
+        file_menu.add_command(label="Backup Data", command=self.backup_data)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+        menubar.add_cascade(label="File", menu=file_menu)
+        
+        # Players menu
+        player_menu = tk.Menu(menubar, tearoff=0)
+        player_menu.add_command(label="Add New Player", command=self.show_add_player_dialog)
+        player_menu.add_command(label="Change Driver Pick", command=self.show_change_driver_dialog)
+        menubar.add_cascade(label="Players", menu=player_menu)
+        
+        # Races menu
+        race_menu = tk.Menu(menubar, tearoff=0)
+        race_menu.add_command(label="Update Race Results", command=self.show_update_race_dialog)
+        race_menu.add_command(label="Add Driver Substitution", command=self.show_add_substitution_dialog)
+        menubar.add_cascade(label="Races", menu=race_menu)
+        
+        # Visualizations menu
+        viz_menu = tk.Menu(menubar, tearoff=0)
+        viz_menu.add_command(label="Season Standings", command=self.show_standings)
+        viz_menu.add_command(label="Points Table", command=self.show_points_table)
+        viz_menu.add_command(label="Driver Performance", command=self.show_driver_performance)
+        viz_menu.add_command(label="Head to Head Comparison", command=self.show_head_to_head)
+        viz_menu.add_command(label="Team Performance", command=self.show_team_performance)
+        viz_menu.add_command(label="Race Analysis", command=self.show_race_analysis)
+        viz_menu.add_command(label="Driver Points by Player", command=self.show_player_driver_points)
+        viz_menu.add_command(label="Credit Efficiency", command=self.show_credit_efficiency)
+        viz_menu.add_command(label="Race Points History", command=self.show_race_points_history)
+        viz_menu.add_command(label="Points Breakdown", command=self.show_points_breakdown)
+        menubar.add_cascade(label="Visualizations", menu=viz_menu)
+        
+        # Help menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="About", command=self.show_about)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        
+        # Update root's menu
+        self.root.config(menu=menubar)
+        
+        logger.info("Main menu rebuilt successfully")
+    
+    def show_add_player_dialog(self):
+        """Show dialog to add a new player"""
+        logger.info("Show add player dialog called")
+        
+        # Switch to the Player Management tab
+        self.view.notebook.select(self.view.notebook.index(self.player_view.frame))
+        
+        # Clear any existing form data for a fresh start
+        self.player_view.clear_form()
+        
+        # Provide a visual cue to the user
+        self.view.set_status("Ready to add a new player - fill in the details and click 'Add Player'")
+        
+        # Make sure Add Player button has the correct command
+        add_button = self.find_button_by_text(self.player_view.frame, "Add Player")
+        if add_button:
+            add_button.config(command=self.player_controller.add_player)
+            
     def init_visualization_controllers(self):
         """Initialize visualization controllers and views"""
         # Create visualizations tab frame
@@ -281,11 +473,6 @@ class MainController:
         else:
             tk.messagebox.showerror("Error", "Failed to create backup")
             self.view.set_status("Failed to create backup")
-    
-    def show_add_player_dialog(self):
-        """Show dialog to add a new player"""
-        # This is handled by the PlayerController
-        self.view.notebook.select(self.view.notebook.index(self.player_view.frame))
     
     def show_change_driver_dialog(self):
         """Show dialog to change a driver for a player"""
@@ -450,3 +637,23 @@ class MainController:
         """Run the application"""
         self.root.mainloop()
 
+    # For testing, add a simple method that can be called directly
+    def test_add_player(self):
+        """Test method to directly add a player for debugging"""
+        logger.debug("Test add player method called")
+        debug_popup("Test Add Player called")
+        
+        # Direct the controller to add a test player
+        test_player_id = "TEST1"
+        test_player_name = "Test Player"
+        test_driver_ids = ["VER", "HAM"]  # Example driver IDs
+        
+        # Call the data manager directly
+        result = self.data_manager.add_player(test_player_id, test_player_name, test_driver_ids)
+        
+        if result:
+            messagebox.showinfo("Success", f"Test player {test_player_name} added successfully!")
+            # Refresh player list
+            self.player_controller.update_player_list()
+        else:
+            messagebox.showerror("Error", "Failed to add test player")
